@@ -1,0 +1,11 @@
+venv
+__pycache__
+*.so
+*.o
+*.c
+.vscode
+TODO
+*.raw
+*.s16
+*.data
+.DS_Store

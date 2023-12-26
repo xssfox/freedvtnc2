@@ -1,0 +1,132 @@
+from .modem import FreeDVRX, FreeDVTX, Modems, Packet
+from . import audio
+from .shell import FreeDVShell
+import logging
+import configargparse
+from . import tnc
+import time
+from . import rigctl
+import readline
+import sys,struct,fcntl,termios
+
+logging.basicConfig()
+
+
+def blank_current_readline():
+    # Next line said to be reasonably portable for various Unixes
+    (rows,cols) = struct.unpack('hh', fcntl.ioctl(sys.stdout, termios.TIOCGWINSZ,'1234'))
+
+    text_len = len(readline.get_line_buffer())+2
+
+    # ANSI escape sequences (All VT100 except ESC[0G)
+    sys.stdout.write('\x1b[2K')                         # Clear current line
+    sys.stdout.write('\x1b[1A\x1b[2K'*(text_len//cols))  # Move cursor up and clear line
+    sys.stdout.write('\x1b[0G')                         # Move to start of line
+
+
+if __name__ == '__main__':
+    p = configargparse.ArgParser(default_config_files=['/etc/freedvtnc2.conf', '~/.freedvtnc2.conf'])
+    p.add('-c', '-config', required=False, is_config_file=True, help='config file path')
+
+    p.add('--no-cli', action='store_true', env_var="FREEDVTNC2_CLI")
+    p.add('--list-audio-devices', action='store_true', default=False)
+
+    p.add('--log-level', type=str, default="INFO", env_var="FREEDVTNC2_LOG_LEVEL", choices=logging._nameToLevel.keys())
+
+    p.add('--input-device', type=str, default=None, env_var="FREEDVTNC2_INPUT_DEVICE")
+    p.add('--output-device', type=str, default=None, env_var="FREEDVTNC2_OUTPUT_DEVICE")
+
+    p.add('--mode', type=str, choices=[x.name for x in Modems], default=Modems.DATAC1.name, help="The TX mode for the modem. The modem will receive all modes at once")
+
+    p.add('--pts', default=False, action='store_true', env_var="FREEDVTNC2_PTS", help="Disables TCP and instead creates a PTS 'fake serial' interface")
+    p.add('--kiss-tcp-port', default=8001, type=int, env_var="FREEDVTNC2_KISS_TCP_PORT")
+    p.add('--kiss-tcp-address', default="127.0.0.1", type=str, env_var="FREEDVTNC2_KISS_TCP_ADDRESS")
+
+    p.add('--rigctld-port', type=int, default=4532, env_var="FREEDVTNC2_RIGTCTLD_PORT", help="TCP port for rigctld - set to 0 to disable rigctld support")
+    p.add('--rigctld-host', type=str, default="localhost", env_var="FREEDVTNC2_RIGTCTLD_HOST", help="Host for rigctld")
+
+    p.add('--callsign', type=str, env_var="FREEDVTNC2_CALLSIGN", help="Currently only used for chat")
+    
+    options = p.parse_args()
+
+    logger = logging.getLogger()
+    logger.setLevel(level=options.log_level)
+    logging.debug("Starting")
+
+    if options.list_audio_devices:
+        print(
+            audio.devices
+        )
+    else:
+        modem_tx = FreeDVTX(modem={x.name:x for x in Modems}[options.mode])
+
+        def tx(data):
+            logging.debug(f"Sending {str(data)}")
+            output_device.write(modem_tx.write(data))
+
+        def rx(data: Packet):
+            logging.debug(f"Received {str(data.header)} - {str(data.data)}")
+            if data.header == 255:
+                tnc_interface.tx(data.data)
+            elif data.header == 254: # Chat interface
+                call, message = data.data.split(b"\xff")
+                # this is all hack to make the input line when receiving a message not clobber the input
+                # ignoring debug messages - this is the only place where we have this issues - if we add more threaded output
+                # we should move this into a dedicated function
+                if not options.no_cli: 
+                    blank_current_readline()
+                    print(f"<{call.decode()}> {message.decode()}")
+                    if readline.get_line_buffer()[-1:] == "\n": # the readline buffer doesn't get cleared on libedit - I haven't tested this on gnureadline
+                     sys.stdout.write(shell.prompt)
+                    else:
+                        sys.stdout.write(shell.prompt + readline.get_line_buffer())
+                    sys.stdout.flush()
+                else:
+                    print(f"\n<{call.decode()}> {message.decode()}")
+                
+        if options.pts:
+            tnc_interface = tnc.KissInterface(tx)
+        else:
+            tnc_interface = tnc.KissTCPInterface(tx, port=options.kiss_tcp_port, address=options.kiss_tcp_address)
+            
+        modem_rx = FreeDVRX(callback=rx)
+
+        input_device_name_or_id = options.input_device
+        output_device_name_or_id = options.output_device
+
+        try:
+            input_device_name_or_id = int(input_device_name_or_id)
+            output_device_name_or_id = int(output_device_name_or_id)
+        except:
+            pass
+        
+        if options.rigctld_port != 0:
+            rig = rigctl.Rigctld(hostname=options.rigctld_host, port=options.rigctld_port)
+            ptt_trigger = rig.ptt_enable
+            ptt_release = rig.ptt_disable
+        else:
+            ptt_trigger = None
+            ptt_release = None
+        
+        input_device = audio.InputDevice(modem_rx.write, modem_rx.sample_rate, name_or_id=input_device_name_or_id)
+        output_device = audio.OutputDevice(modem_rx.sample_rate, name_or_id=output_device_name_or_id, ptt_release=ptt_release, ptt_trigger=ptt_trigger)
+
+        try:
+            if not options.no_cli:
+                if 'libedit' in readline.__doc__: # macos hack
+                    readline.parse_and_bind ("bind ^I rl_complete")
+
+                shell = FreeDVShell()
+                shell.modem_rx = modem_rx
+                shell.modem_tx = modem_tx
+                shell.input_device = input_device
+                shell.output_device = output_device
+                if options.callsign:
+                    shell.callsign = options.callsign
+                shell.cmdloop()
+            else:
+                while 1:
+                    time.sleep(0.1)
+        except KeyboardInterrupt:
+            input_device.close()
+            output_device.close()
