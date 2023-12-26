@@ -270,9 +270,9 @@ class FreeDVRX():
             self.callback(Packet(header=self.header, data=self.partial_data, mode=data_frame.modem))
 
 class FreeDVTX():
-    def __init__(self, modem: Modem = Modems.DATAC1):
-        self.modem = Modem(modem=modem)
-    def set_mode(self,  modem: Modem):
-        self.modem = Modem(modem=modem)
+    def __init__(self, modem: str = Modems.DATAC1.name):
+        self.modem = Modem(modem={x.name:x for x in Modems}[modem])
+    def set_mode(self,  modem: str):
+        self.modem = Modem(modem={x.name:x for x in Modems}[modem])
     def write(self, data: bytes, header_byte=b'\xff'):
         return self.modem.modulate(data, header_byte)

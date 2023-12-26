@@ -11,7 +11,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding.bindings.page_navigation import scroll_page_up, scroll_page_down
 import time
 import logging
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.completion import WordCompleter, NestedCompleter
 import sys
 from . import audio
 import readline
@@ -42,6 +42,13 @@ class FreeDVShellCommands():
     @property
     def commands(self):
         return [func[3:] for func in dir(self) if func.startswith("do_")]
+    
+    @property
+    def completion(self):
+        return {
+            func[3:] : getattr(self, f"completion_{func[3:]}")() if hasattr(self, f"completion_{func[3:]}") else None
+            for func in dir(self) if func.startswith("do_")
+        }
 
     @property
     def help(self):
@@ -59,6 +66,11 @@ class FreeDVShellCommands():
         logger.setLevel(level=arg)
         return f"Set log level to {arg}"
 
+    def completion_log_level(self):
+        return {
+            x : None for x in logging._nameToLevel.keys()
+        }
+
     def do_test_ptt(self, arg):
         "Turns on PTT for 2 seconds"
         sin_wave = pydub.generators.Sine(
@@ -71,6 +83,7 @@ class FreeDVShellCommands():
 
     def help_mode(self):
         return f"Change TX Mode: mode [{', '.join([x.name for x in Modems])}]"
+    
     def do_mode(self, arg):
         if arg == "":
             return f"Current mode: {self.modem_tx.modem.modem_name}"
@@ -81,9 +94,12 @@ class FreeDVShellCommands():
         if arg not in [x.name for x in Modems]:
             return f"Mode must be {', '.join([x.name for x in Modems])}"
         else:
-            modem = {x.name:x for x in Modems}[arg]
-            self.modem_tx.set_mode(modem)
+            self.modem_tx.set_mode(arg)
             return f"Set mode {arg}"
+    def completion_mode(self):
+        return {
+            x.name : None for x in Modems
+        }
 
     def do_clear(self, arg):
         "Clears TX queues"
@@ -107,7 +123,10 @@ class FreeDVShellCommands():
 
     def do_volume(self,arg):
         "Set the volume gain in db for output level - you probably want to use soundcard configuration or radio configuration rather than this."
-        self.output_device.db = float(arg)
+        try: 
+            self.output_device.db = float(arg)
+        except ValueError:
+            return "Usage is: volume -4.5"
         return f"Set TX volume to {float(arg)} db"
 
     def do_callsign(self,arg):
@@ -141,6 +160,8 @@ class FreeDVShellCommands():
         sys.ps1 = "(freedvtnc2)>>> "
         sys.ps2 = "(freedvtnc2)... "
 
+        if 'libedit' in readline.__doc__: # macos hack
+            readline.parse_and_bind ("bind ^I rl_complete")
         readline.set_completer(rlcompleter.Completer(variables).complete)
         shell = code.InteractiveConsole(variables)
         try:
@@ -213,7 +234,7 @@ class FreeDVShell():
             multiline=False,
             wrap_lines=False,
             accept_handler=accept,
-            completer=WordCompleter(self.shell_commands.commands)
+            completer=NestedCompleter.from_nested_dict(self.shell_commands.completion)
         )
 
 

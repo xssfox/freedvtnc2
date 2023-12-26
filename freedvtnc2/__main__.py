@@ -8,7 +8,7 @@ import time
 from . import rigctl
 import readline
 import sys,struct,fcntl,termios
-
+import traceback
 logging.basicConfig()
 
 if __name__ == '__main__':
@@ -25,6 +25,7 @@ if __name__ == '__main__':
     p.add('--output-volume', type=float, default=0, env_var="FREEDVTNC2_OUTPUT_DB", help="in db. postive = louder, negative = quiter")
 
     p.add('--mode', type=str, choices=[x.name for x in Modems], default=Modems.DATAC1.name, help="The TX mode for the modem. The modem will receive all modes at once")
+    p.add('--follow', action="store_true", default=False, env_var="FREEDVTNC2_FOLLOW", help="When enabled change TX mode to the mode being received. This is useful for stations operating automatically.")
 
     p.add('--pts', default=False, action='store_true', env_var="FREEDVTNC2_PTS", help="Disables TCP and instead creates a PTS 'fake serial' interface")
     p.add('--kiss-tcp-port', default=8001, type=int, env_var="FREEDVTNC2_KISS_TCP_PORT")
@@ -48,29 +49,43 @@ if __name__ == '__main__':
             audio.devices
         )
     else:
-        modem_tx = FreeDVTX(modem={x.name:x for x in Modems}[options.mode])
+        modem_tx = FreeDVTX(modem=options.mode)
 
         def tx(data):
-            logging.debug(f"Sending {str(data)}")
-            output_device.write(modem_tx.write(data))
+            try:
+                logging.debug(f"Sending {str(data)}")
+                output_device.write(modem_tx.write(data))
+            except:
+                logging.critical(
+                    traceback.format_exc()
+                )
         
         def progress(total:int, remaining:int, mode:str):
             if not options.no_cli:
                 shell.progress(total, remaining, mode)
 
         def rx(data: Packet):
-            logging.debug(f"Received {str(data.header)} - {str(data.data)}")
-            if data.header == 255:
-                tnc_interface.tx(data.data)
-            elif data.header == 254: # Chat interface
-                call, message = data.data.split(b"\xff")
-                # this is all hack to make the input line when receiving a message not clobber the input
-                # ignoring debug messages - this is the only place where we have this issues - if we add more threaded output
-                # we should move this into a dedicated function
-                if not options.no_cli: 
-                    shell.add_text(f"<{call.decode()}> {message.decode()}\n")
-                else:
-                    print(f"\n<{call.decode()}> {message.decode()}")
+            logging.debug(f"[{str(data.mode)}] {str(data.header)} / {str(data.data)}")
+            try:
+                if data.header == 255:
+                    tnc_interface.tx(data.data)
+                elif data.header == 254: # Chat interface
+                    call, message = data.data.split(b"\xff")
+                    # this is all hack to make the input line when receiving a message not clobber the input
+                    # ignoring debug messages - this is the only place where we have this issues - if we add more threaded output
+                    # we should move this into a dedicated function
+                    if not options.no_cli: 
+                        shell.add_text(f"<{call.decode()}> {message.decode()}\n")
+                    else:
+                        print(f"\n<{call.decode()}> {message.decode()}")
+                
+                if options.follow and data.mode != modem_tx.modem.modem_name:
+                    logging.info(f"Switching to {data.mode}")
+                    modem_tx.set_mode(modem=data.mode)
+            except:
+                logging.critical(
+                    traceback.format_exc()
+                )
                 
         if options.pts:
             tnc_interface = tnc.KissInterface(tx)
