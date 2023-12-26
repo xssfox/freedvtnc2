@@ -175,6 +175,20 @@ class FreeDVShellCommands():
             shell.interact(banner="freedvtnc2 debug console")
         except SystemExit:
             pass
+    def do_follow(self,arg):
+        "Allows the tx modem to change to the mode last received - follow on"
+        if arg not in ["on", "off"]:
+            return "Usage: follow on or follow off"
+        if arg == "on":
+            self.options.follow = True
+        else:
+            self.options.follow = False
+        return f"Set follow mode to {arg}"
+    def completion_follow(self):
+        return {
+            "on": None,
+            "off": None
+        }        
 
     def do_save_config(self, arg):
         "Save a config file to ~/.freedvtnc2.conf. Warning this will override your current config"
