@@ -18,8 +18,12 @@ import readline
 import code
 import rlcompleter
 import pydub.generators
-from .modem import Modems
+from .modem import Modems, FreeDVRX, FreeDVTX
 import traceback
+from pathlib import Path
+import argparse
+import configargparse
+
 
 class LogHandler(logging.StreamHandler):
     def __init__(self, text_area:TextArea):
@@ -33,11 +37,11 @@ class LogHandler(logging.StreamHandler):
         )
 
 class FreeDVShellCommands():
-    callsign = None
-
-    def __init__(self, modem_tx, output_device):
+    def __init__(self, modem_tx: FreeDVTX, output_device: audio.OutputDevice, parser: configargparse.ArgParser, options:argparse.Namespace):
         self.modem_tx = modem_tx
         self.output_device = output_device
+        self.p = parser
+        self.options = options
 
     @property
     def commands(self):
@@ -64,6 +68,7 @@ class FreeDVShellCommands():
             return f"Must be one of : {','.join(logging._nameToLevel.keys())}"
         logger = logging.getLogger()
         logger.setLevel(level=arg)
+        self.options.log_level = arg
         return f"Set log level to {arg}"
 
     def completion_log_level(self):
@@ -95,6 +100,7 @@ class FreeDVShellCommands():
             return f"Mode must be {', '.join([x.name for x in Modems])}"
         else:
             self.modem_tx.set_mode(arg)
+            self.options.mode = arg
             return f"Set mode {arg}"
     def completion_mode(self):
         return {
@@ -125,21 +131,22 @@ class FreeDVShellCommands():
         "Set the volume gain in db for output level - you probably want to use soundcard configuration or radio configuration rather than this."
         try: 
             self.output_device.db = float(arg)
+            self.options.output_volume = float(arg)
         except ValueError:
             return "Usage is: volume -4.5"
         return f"Set TX volume to {float(arg)} db"
 
     def do_callsign(self,arg):
         "Sets callsign - example: callsign N0CALL"
-        self.callsign=arg
+        self.options.callsign = arg
         return f"Callsign set to {arg}"
     def do_msg(self, arg):
         "Send a message"
 
-        if not self.callsign:
-           return "Set callsign with the callsign command\n"
+        if not self.options.callsign:
+           return "Set callsign with the callsign command first\n"
 
-        data = self.callsign.encode() + b"\xff" + arg.encode()
+        data =  self.options.callsign.encode() + b"\xff" + arg.encode()
 
         self.output_device.write(self.modem_tx.write(data, header_byte=b"\xfe"))
         
@@ -168,15 +175,25 @@ class FreeDVShellCommands():
             shell.interact(banner="freedvtnc2 debug console")
         except SystemExit:
             pass
+
+    def do_save_config(self, arg):
+        "Save a config file to ~/.freedvtnc2.conf. Warning this will override your current config"
+        path = str(Path.home() / ".freedvtnc2.conf")
+        with open(path, "w") as f: 
+            f.write(
+                configargparse.DefaultConfigFileParser().serialize({ key.replace("_","-"): str(value) if value != None else "" for key,value in vars(self.options).items() if key != "c"})
+            )
+
+        return (f"Saved config to {path}")
 class FreeDVShell():
-    def __init__(self, modem_rx, modem_tx, output_device, input_device):
+    def __init__(self, modem_rx: FreeDVRX, modem_tx: FreeDVTX, output_device: audio.OutputDevice, input_device: audio.InputDevice, parser:  configargparse.ArgParser, options: argparse.Namespace):
         self.modem_tx = modem_tx
         self.modem_rx = modem_rx
         self.output_device = output_device
         self.input_device = input_device
 
         self.logger = logging.getLogger()
-        self.shell_commands = FreeDVShellCommands(modem_tx, output_device)
+        self.shell_commands = FreeDVShellCommands(modem_tx, output_device, parser, options)
         self.log = TextArea(
             text="",
             scrollbar=True,

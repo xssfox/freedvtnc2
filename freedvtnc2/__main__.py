@@ -12,7 +12,7 @@ import traceback
 logging.basicConfig()
 
 if __name__ == '__main__':
-    p = configargparse.ArgParser(default_config_files=['/etc/freedvtnc2.conf', '~/.freedvtnc2.conf'])
+    p = configargparse.ArgParser(default_config_files=['~/.freedvtnc2.conf'], config_file_parser_class=configargparse.DefaultConfigFileParser)
     p.add('-c', '-config', required=False, is_config_file=True, help='config file path')
 
     p.add('--no-cli', action='store_true', env_var="FREEDVTNC2_CLI")
@@ -127,9 +127,7 @@ if __name__ == '__main__':
 
         try:
             if not options.no_cli:
-                shell = FreeDVShell(modem_rx, modem_tx, output_device, input_device)
-                if options.callsign:
-                    shell.shell_commands.callsign = options.callsign
+                shell = FreeDVShell(modem_rx, modem_tx, output_device, input_device, p, options)
                 shell.run()
             else:
                 while 1:
