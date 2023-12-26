@@ -93,7 +93,8 @@ if __name__ == '__main__':
             tnc_interface = tnc.KissTCPInterface(tx, port=options.kiss_tcp_port, address=options.kiss_tcp_address)
             
         def inhibit(state):
-            output_device.inhibit = state
+            if "output_device" in  locals():
+                output_device.inhibit = state
 
         modem_rx = FreeDVRX(callback=rx, progress=progress, inhibit=inhibit)
 
