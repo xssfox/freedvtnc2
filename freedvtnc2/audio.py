@@ -78,12 +78,12 @@ class InputDevice():
         self.callback = callback
         self.bit_depth = pyaudio.get_sample_size(FORMAT)
 
-        if name_or_id:
+        if  name_or_id != None:
             try:
                 self.device = next(
-                    device for device in devices.devices 
-                    if device.name == name_or_id or
-                    device.id == name_or_id
+                    device for device in devices.devices
+                    if (device.name == name_or_id or
+                    device.id == name_or_id) and device.input_channels > 0
                 )
             except StopIteration:
                 raise ValueError(f"Could not find audio device {name_or_id}")
@@ -183,12 +183,12 @@ class OutputDevice():
         self.ptt_off_delay_ms = ptt_off_delay_ms
         self.db = db
 
-        if name_or_id:
+        if name_or_id != None:
             try:
                 self.device = next(
                     device for device in devices.devices 
-                    if device.name == name_or_id or
-                    device.id == name_or_id
+                    if (device.name == name_or_id or
+                    device.id == name_or_id) and device.output_channels > 0
                 )
             except StopIteration:
                 raise ValueError(f"Could not find audio device {name_or_id}")
