@@ -5,7 +5,10 @@ import logging
 import audioop as pyaudioop
 import time
 from threading import Lock
+from typing import Callable
 #from pydub import pyaudioop
+import pydub
+
 
 p = pyaudio.PyAudio()
 
@@ -69,7 +72,7 @@ class InputDevice():
 
     rate_state = None # used for sample rate conversions
 
-    def __init__(self, callback, sample_rate, name_or_id=None):
+    def __init__(self, callback: Callable[[bytes], None], sample_rate:int, name_or_id:str|int|None=None):
         self.sample_rate = sample_rate
         self.callback = callback
         self.bit_depth = pyaudio.get_sample_size(FORMAT)
@@ -117,8 +120,7 @@ class InputDevice():
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def pa_callback(self, in_data, frame_count, time_info, status_flag):
-
+    def pa_callback(self, in_data: bytes, frame_count: int, time_info, status_flag):
         if self.device.input_channels == 2:
             in_data = pyaudioop.tomono(
                 in_data,
@@ -154,9 +156,11 @@ class OutputDevice():
 
     output_buffer_lock = Lock()
 
-    def __init__(self, sample_rate, name_or_id=None, ptt_trigger=None, ptt_release=None):
+    def __init__(self, sample_rate: int, name_or_id:int|str|None=None, ptt_trigger:Callable[[],None]=None, ptt_release:Callable[[],None]=None, ptt_on_delay_ms:int=0, ptt_off_delay_ms:int=0):
         self.sample_rate = sample_rate
         self.bit_depth = pyaudio.get_sample_size(FORMAT)
+        self.ptt_on_delay_ms = ptt_on_delay_ms
+        self.ptt_off_delay_ms = ptt_off_delay_ms
 
         if name_or_id:
             try:
@@ -196,6 +200,11 @@ class OutputDevice():
 
 
     def write(self, data: bytes):
+        # ptt delay
+        pre_silence = pydub.AudioSegment.silent(duration=self.ptt_on_delay_ms, frame_rate=self.device.sample_rate)
+        pre_silence = pre_silence.set_channels(self.device.output_channels)
+        write_buffer = pre_silence.raw_data
+        
         if self.device.sample_rate != self.sample_rate:
             (data, self.rate_state) = pyaudioop.ratecv(
                 data, 
@@ -205,7 +214,6 @@ class OutputDevice():
                 self.device.sample_rate,
                 self.rate_state,
             )
-
         if self.device.output_channels == 2:
                     data = pyaudioop.tostereo(
                         data,
@@ -213,8 +221,16 @@ class OutputDevice():
                         1,
                         1
                     )
+        
+        write_buffer += data
+        
+        # ptt delay
+        post_silence = pydub.AudioSegment.silent(duration=self.ptt_off_delay_ms, frame_rate=self.device.sample_rate)
+        post_silence = post_silence.set_channels(self.device.output_channels)
+        write_buffer += post_silence.raw_data
+
         with self.output_buffer_lock:
-            self.buffer += data
+            self.buffer += write_buffer
         logging.debug("wrote to output buffer")
 
     def pa_callback(self, in_data, frame_count, time_info, status):

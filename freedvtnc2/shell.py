@@ -33,14 +33,18 @@ class FreeDVShell(cmd.Cmd):
         print("Stopping TX")
 
     def do_mode(self, arg):
+        if arg == "":
+            print(f"Current mode: {self.modem_tx.modem.modem_name}")
+            return
+        
         arg = arg.upper()
+
         if arg not in [x.name for x in Modems]:
             print(f"Mode must be {', '.join([x.name for x in Modems])}")
         else:
             modem = {x.name:x for x in Modems}[arg]
-            self.modem_rx.set_mode(modem)
             self.modem_tx.set_mode(modem)
-        print(f"Set mode {arg}")
+            print(f"Set mode {arg}")
 
     def help_mode(self):
         print(f"Change TX Mode: mode [{', '.join([x.name for x in Modems])}]")
@@ -69,6 +73,9 @@ class FreeDVShell(cmd.Cmd):
 
         self.output_device.write(self.modem_tx.write(data, header_byte=b"\xfe"))
         
+    def do_exit(self, arg):
+        raise KeyboardInterrupt
+    
     def do_debug(self, arg):
         "Open the debug shell"
 

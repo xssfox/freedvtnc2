@@ -258,8 +258,6 @@ class FreeDVRX():
             self.next_seq_number = None
             self.remaining_bytes = None
             self.callback(Packet(header=self.header, data=self.partial_data))
-    def set_mode(self,  modem: Modem):
-        self.modem = Modem(modem=modem)
 
 class FreeDVTX():
     def __init__(self, modem: Modem = Modems.DATAC1):

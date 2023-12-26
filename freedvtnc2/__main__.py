@@ -44,6 +44,8 @@ if __name__ == '__main__':
 
     p.add('--rigctld-port', type=int, default=4532, env_var="FREEDVTNC2_RIGTCTLD_PORT", help="TCP port for rigctld - set to 0 to disable rigctld support")
     p.add('--rigctld-host', type=str, default="localhost", env_var="FREEDVTNC2_RIGTCTLD_HOST", help="Host for rigctld")
+    p.add('--ptt-on-delay-ms', type=int, default=100, env_var="FREEDVTNC2_PTT_ON_DELAY_MS", help="Delay after triggering PTT before sending data")
+    p.add('--ptt-off-delay-ms', type=int, default=100, env_var="FREEDVTNC2_PTT_OFF_DELAY_MS", help="Delay after sending data before releasing PTT")
 
     p.add('--callsign', type=str, env_var="FREEDVTNC2_CALLSIGN", help="Currently only used for chat")
     
@@ -109,7 +111,14 @@ if __name__ == '__main__':
             ptt_release = None
         
         input_device = audio.InputDevice(modem_rx.write, modem_rx.sample_rate, name_or_id=input_device_name_or_id)
-        output_device = audio.OutputDevice(modem_rx.sample_rate, name_or_id=output_device_name_or_id, ptt_release=ptt_release, ptt_trigger=ptt_trigger)
+        output_device = audio.OutputDevice(
+            modem_rx.sample_rate,
+            name_or_id=output_device_name_or_id,
+            ptt_release=ptt_release,
+            ptt_trigger=ptt_trigger,
+            ptt_on_delay_ms=options.ptt_on_delay_ms,
+            ptt_off_delay_ms=options.ptt_off_delay_ms
+        )
 
         try:
             if not options.no_cli:
