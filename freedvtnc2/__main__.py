@@ -11,19 +11,6 @@ import sys,struct,fcntl,termios
 
 logging.basicConfig()
 
-
-def blank_current_readline():
-    # Next line said to be reasonably portable for various Unixes
-    (rows,cols) = struct.unpack('hh', fcntl.ioctl(sys.stdout, termios.TIOCGWINSZ,'1234'))
-
-    text_len = len(readline.get_line_buffer())+2
-
-    # ANSI escape sequences (All VT100 except ESC[0G)
-    sys.stdout.write('\x1b[2K')                         # Clear current line
-    sys.stdout.write('\x1b[1A\x1b[2K'*(text_len//cols))  # Move cursor up and clear line
-    sys.stdout.write('\x1b[0G')                         # Move to start of line
-
-
 if __name__ == '__main__':
     p = configargparse.ArgParser(default_config_files=['/etc/freedvtnc2.conf', '~/.freedvtnc2.conf'])
     p.add('-c', '-config', required=False, is_config_file=True, help='config file path')
@@ -35,6 +22,7 @@ if __name__ == '__main__':
 
     p.add('--input-device', type=str, default=None, env_var="FREEDVTNC2_INPUT_DEVICE")
     p.add('--output-device', type=str, default=None, env_var="FREEDVTNC2_OUTPUT_DEVICE")
+    p.add('--output-volume', type=float, default=0, env_var="FREEDVTNC2_OUTPUT_DB", help="in db. postive = louder, negative = quiter")
 
     p.add('--mode', type=str, choices=[x.name for x in Modems], default=Modems.DATAC1.name, help="The TX mode for the modem. The modem will receive all modes at once")
 
@@ -65,6 +53,10 @@ if __name__ == '__main__':
         def tx(data):
             logging.debug(f"Sending {str(data)}")
             output_device.write(modem_tx.write(data))
+        
+        def progress(total:int, remaining:int, mode:str):
+            if not options.no_cli:
+                shell.progress(total, remaining, mode)
 
         def rx(data: Packet):
             logging.debug(f"Received {str(data.header)} - {str(data.data)}")
@@ -76,13 +68,7 @@ if __name__ == '__main__':
                 # ignoring debug messages - this is the only place where we have this issues - if we add more threaded output
                 # we should move this into a dedicated function
                 if not options.no_cli: 
-                    blank_current_readline()
-                    print(f"<{call.decode()}> {message.decode()}")
-                    if readline.get_line_buffer()[-1:] == "\n": # the readline buffer doesn't get cleared on libedit - I haven't tested this on gnureadline
-                     sys.stdout.write(shell.prompt)
-                    else:
-                        sys.stdout.write(shell.prompt + readline.get_line_buffer())
-                    sys.stdout.flush()
+                    shell.add_text(f"<{call.decode()}> {message.decode()}\n")
                 else:
                     print(f"\n<{call.decode()}> {message.decode()}")
                 
@@ -91,7 +77,10 @@ if __name__ == '__main__':
         else:
             tnc_interface = tnc.KissTCPInterface(tx, port=options.kiss_tcp_port, address=options.kiss_tcp_address)
             
-        modem_rx = FreeDVRX(callback=rx)
+        def inhibit(state):
+            output_device.inhibit = state
+
+        modem_rx = FreeDVRX(callback=rx, progress=progress, inhibit=inhibit)
 
         input_device_name_or_id = options.input_device
         output_device_name_or_id = options.output_device
@@ -117,22 +106,16 @@ if __name__ == '__main__':
             ptt_release=ptt_release,
             ptt_trigger=ptt_trigger,
             ptt_on_delay_ms=options.ptt_on_delay_ms,
-            ptt_off_delay_ms=options.ptt_off_delay_ms
+            ptt_off_delay_ms=options.ptt_off_delay_ms,
+            db=options.output_volume
         )
 
         try:
             if not options.no_cli:
-                if 'libedit' in readline.__doc__: # macos hack
-                    readline.parse_and_bind ("bind ^I rl_complete")
-
-                shell = FreeDVShell()
-                shell.modem_rx = modem_rx
-                shell.modem_tx = modem_tx
-                shell.input_device = input_device
-                shell.output_device = output_device
+                shell = FreeDVShell(modem_rx, modem_tx, output_device, input_device)
                 if options.callsign:
-                    shell.callsign = options.callsign
-                shell.cmdloop()
+                    shell.shell_commands.callsign = options.callsign
+                shell.run()
             else:
                 while 1:
                     time.sleep(0.1)

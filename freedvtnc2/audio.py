@@ -8,7 +8,7 @@ from threading import Lock
 from typing import Callable
 #from pydub import pyaudioop
 import pydub
-
+import math
 
 p = pyaudio.PyAudio()
 
@@ -71,6 +71,7 @@ class InputDevice():
     """
 
     rate_state = None # used for sample rate conversions
+    input_level = -99
 
     def __init__(self, callback: Callable[[bytes], None], sample_rate:int, name_or_id:str|int|None=None):
         self.sample_rate = sample_rate
@@ -110,7 +111,6 @@ class InputDevice():
                     frames_per_buffer=4096
                 )
 
-
     def close(self):
         self.stream.close()
 
@@ -121,6 +121,12 @@ class InputDevice():
         self.close()
 
     def pa_callback(self, in_data: bytes, frame_count: int, time_info, status_flag):
+        max_audio = pyaudioop.max(in_data,pyaudio.get_sample_size(FORMAT))
+        if max_audio:
+            self.input_level = 20*math.log10(max_audio/(2**(self.bit_depth*8-1)))
+        else:
+            self.input_level = -99
+
         if self.device.input_channels == 2:
             in_data = pyaudioop.tomono(
                 in_data,
@@ -156,11 +162,26 @@ class OutputDevice():
 
     output_buffer_lock = Lock()
 
-    def __init__(self, sample_rate: int, name_or_id:int|str|None=None, ptt_trigger:Callable[[],None]=None, ptt_release:Callable[[],None]=None, ptt_on_delay_ms:int=0, ptt_off_delay_ms:int=0):
+    inhibit = False
+
+    @property
+    def queue_ms(self):
+        return (len(self.buffer)/self.bit_depth/self.device.sample_rate)*1000
+
+    def __init__(self, 
+                 sample_rate: int,
+                 name_or_id:int|str|None=None, 
+                 ptt_trigger:Callable[[],None]=None, 
+                 ptt_release:Callable[[],None]=None, 
+                 ptt_on_delay_ms:int=0, 
+                 ptt_off_delay_ms:int=0,
+                 db:float=0
+                 ):
         self.sample_rate = sample_rate
         self.bit_depth = pyaudio.get_sample_size(FORMAT)
         self.ptt_on_delay_ms = ptt_on_delay_ms
         self.ptt_off_delay_ms = ptt_off_delay_ms
+        self.db = db
 
         if name_or_id:
             try:
@@ -214,6 +235,10 @@ class OutputDevice():
                 self.device.sample_rate,
                 self.rate_state,
             )
+        
+        if self.db:
+            data = pyaudioop.mul(data, 2, 10**(self.db/20.0))
+
         if self.device.output_channels == 2:
                     data = pyaudioop.tostereo(
                         data,
@@ -239,6 +264,10 @@ class OutputDevice():
         output = bytearray(buffer_size)
 
         ptt = False
+
+        # if we aren't transmitting and we have inhibited tx then skip
+        if self.inhibit == True and self.ptt == False:
+            return (bytes(output), pyaudio.paContinue)
 
         with self.output_buffer_lock:
             chunk_size = min(len(self.buffer), buffer_size)

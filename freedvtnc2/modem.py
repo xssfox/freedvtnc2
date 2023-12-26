@@ -198,10 +198,13 @@ class Modem():
 class Packet():
     data: bytes
     header: int
+    mode: str
 
 class FreeDVRX():
-    def __init__(self, callback: Callable[[bytes],None]):
+    def __init__(self, callback: Callable[[bytes],None], progress: Callable[[int,int],None], inhibit: Callable[[bool],None]):
         self.callback = callback
+        self.progress = progress
+        self.inhibit = inhibit
 
         # we RX all the modems at once
         self.modems = [Modem(x, callback=self.rx) for x in Modems]
@@ -221,14 +224,20 @@ class FreeDVRX():
         """
         Accepts bytes of data that will be read by tge modem and demodulated
         """
+        sync = False
         for modem in self.modems:
             modem.write(data)
+            if modem.sync:
+                sync = True
+        self.inhibit(sync)
+
     def rx(self, data_frame: FreeDVFrame):
         logging.debug(f"Received data. snr:{data_frame.snr}")
         data = bytearray(data_frame.data)
         header = data.pop(0)
         if header > 200: # start of packet
             self.remaining_bytes = int.from_bytes(data[0:2])
+            self.total_bytes = self.remaining_bytes
             del data[0:2]
             logging.debug(f"Found packet start - Expecting {self.remaining_bytes} bytes")
             self.next_seq_number = 0
@@ -254,10 +263,11 @@ class FreeDVRX():
 
         logging.debug(f"Seq: {header} Remaining data: {self.remaining_bytes}")
 
+        self.progress(self.total_bytes, self.remaining_bytes, data_frame.modem)
         if self.remaining_bytes == 0:
             self.next_seq_number = None
             self.remaining_bytes = None
-            self.callback(Packet(header=self.header, data=self.partial_data))
+            self.callback(Packet(header=self.header, data=self.partial_data, mode=data_frame.modem))
 
 class FreeDVTX():
     def __init__(self, modem: Modem = Modems.DATAC1):
