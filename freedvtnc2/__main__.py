@@ -6,8 +6,6 @@ import configargparse
 from . import tnc
 import time
 from . import rigctl
-import readline
-import sys,struct,fcntl,termios
 import traceback
 logging.basicConfig()
 
@@ -43,6 +41,41 @@ if __name__ == '__main__':
     logger = logging.getLogger()
     logger.setLevel(level=options.log_level)
     logging.debug("Starting")
+
+
+    class LogHandler(logging.StreamHandler):
+        shell = None
+        def __init__(self):
+            super().__init__()
+            self.log_buffer = ""
+        def emit(self, record):
+            msg = self.format(record)
+
+            if options.no_cli:
+                print(msg)
+            else:
+                if not self.shell:
+                    self.log_buffer += msg + "\n"
+                else:
+                    self.shell.add_text(msg +"\n")
+
+        
+
+    while logger.hasHandlers(): # remove existing handlers
+        logger.removeHandler(logger.handlers[0])
+    log_handler = LogHandler()
+
+    kiss_loggers = logging.getLogger('kissfix.classes')
+
+    while kiss_loggers.hasHandlers(): # remove existing handlers
+        kiss_loggers.removeHandler(kiss_loggers.handlers[0])
+
+    log_handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(module)s: %(message)s"))
+    logger.addHandler(log_handler)
+    kiss_loggers.addHandler(log_handler)
+    
+    
+
 
     if options.list_audio_devices:
         print(
@@ -128,7 +161,8 @@ if __name__ == '__main__':
 
         try:
             if not options.no_cli:
-                shell = FreeDVShell(modem_rx, modem_tx, output_device, input_device, p, options)
+                shell = FreeDVShell(modem_rx, modem_tx, output_device, input_device, p, options, log_handler.log_buffer)
+                log_handler.shell = shell
                 shell.run()
             else:
                 while 1:

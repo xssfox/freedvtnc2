@@ -202,7 +202,7 @@ class FreeDVShellCommands():
 
         return (f"Saved config to {path}")
 class FreeDVShell():
-    def __init__(self, modem_rx: FreeDVRX, modem_tx: FreeDVTX, output_device: audio.OutputDevice, input_device: audio.InputDevice, parser:  configargparse.ArgParser, options: argparse.Namespace):
+    def __init__(self, modem_rx: FreeDVRX, modem_tx: FreeDVTX, output_device: audio.OutputDevice, input_device: audio.InputDevice, parser:  configargparse.ArgParser, options: argparse.Namespace, logs:str):
         self.modem_tx = modem_tx
         self.modem_rx = modem_rx
         self.output_device = output_device
@@ -211,15 +211,10 @@ class FreeDVShell():
         self.logger = logging.getLogger()
         self.shell_commands = FreeDVShellCommands(modem_tx, output_device, parser, options)
         self.log = TextArea(
-            text="",
+            text=logs,
             scrollbar=True,
             line_numbers=False,
         )
-        while self.logger.hasHandlers(): # remove existing handlers
-            self.logger.removeHandler(self.logger.handlers[0])
-        self.log_handler = LogHandler(self.log)
-        self.log_handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
-        self.logger.addHandler(self.log_handler)
     def add_text(self, text):
         new_text = self.log.text + text
 
