@@ -139,6 +139,9 @@ class Modem():
         pop_packet_length = self.bytes_per_frame - 2 - 3 # first iteration we use 3 bytes for the header
         frame=bytearray(self.bytes_per_frame)
         used_bytes = 0
+
+        number_combined = 0
+
         while queue:
             packet = queue.pop(0)
             data = bytearray(packet.data)
@@ -176,14 +179,24 @@ class Modem():
             # can we fit a little more data in?
             
             # 2 for crc
+            if number_combined > 5: # limit to 5 packets combined - probably turn this into an option
+                if queue:
+                    logging.debug("max combined frames reached")
+                    frames.append(frame)
+                    frame=bytearray(self.bytes_per_frame)
+                    used_bytes = 0
+                    pop_packet_length = self.bytes_per_frame - 2 - 3
+                    number_combined = 0
             if used_bytes + 2 <= self.bytes_per_frame - 3: # we need three bytes to start the next payload
                 pop_packet_length = self.bytes_per_frame - used_bytes - 2 - 3
+                number_combined += 1
             else:
                 if queue:
                     frames.append(frame)
                     frame=bytearray(self.bytes_per_frame)
                     used_bytes = 0
                     pop_packet_length = self.bytes_per_frame - 2 - 3
+                    number_combined = 0
         frames.append(frame)
 
         output = bytes()
