@@ -129,6 +129,8 @@ class FreeDVShellCommands():
 
     def do_volume(self,arg):
         "Set the volume gain in db for output level - you probably want to use soundcard configuration or radio configuration rather than this."
+        if arg == "":
+            return f"volume: {self.options.output_volume}"
         try: 
             self.output_device.db = float(arg)
             self.options.output_volume = float(arg)
@@ -232,6 +234,10 @@ class FreeDVShell():
         
         def accept(buff):
             try:
+                new_text =  self.log.text + f"\n> {input_field.text}\n"
+                self.log.buffer.document = Document(
+                    text=new_text, cursor_position=(len(new_text))
+                )
                 command, arg = input_field.text.split(" ", 1)
             except ValueError:
                 command = input_field.text
