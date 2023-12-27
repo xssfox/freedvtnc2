@@ -48,17 +48,22 @@ if __name__ == '__main__':
         shell = None
         def __init__(self):
             super().__init__()
-            self.log_buffer = ""
+            self.log_buffer = []
         def emit(self, record):
-            msg = self.format(record)
+            msg = [
+                (f"class:log.{record.levelname.lower()}.name", record.name),
+                (f"class:log.{record.levelname.lower()}.module", f":{record.module}:"),
+                (f"class:log.{record.levelname.lower()}.msg", f":{record.msg}\n")
+            ]
 
             if options.no_cli:
-                print(msg)
+                print(self.format(record))
             else:
                 if not self.shell:
-                    self.log_buffer += msg + "\n"
+                    print(self.format(record))
+                    self.log_buffer += msg
                 else:
-                    self.shell.add_text(msg +"\n")
+                    self.shell.add_text(msg)
 
         
 
@@ -83,7 +88,7 @@ if __name__ == '__main__':
             audio.devices
         )
     else:
-        modem_tx = FreeDVTX(modem=options.mode)
+        modem_tx = FreeDVTX(modem=options.mode, max_packets_combined=options.max_packets_combined)
 
         def tx(data):
             try:
@@ -109,7 +114,11 @@ if __name__ == '__main__':
                     # ignoring debug messages - this is the only place where we have this issues - if we add more threaded output
                     # we should move this into a dedicated function
                     if not options.no_cli: 
-                        shell.add_text(f"<{call.decode()}> {message.decode()}\n")
+                        shell.add_text([
+                            ("class:chat.callsign", f"<{call.decode()}>"),
+                            ("class:chat.message",f"{message.decode()}\n")
+                            ]
+                        )
                     else:
                         print(f"\n<{call.decode()}> {message.decode()}")
                 
@@ -170,5 +179,7 @@ if __name__ == '__main__':
                 while 1:
                     time.sleep(0.1)
         except KeyboardInterrupt:
+            log_handler.shell = None
+            rig.ptt_disable()
             input_device.close()
             output_device.close()

@@ -36,6 +36,7 @@ class Modem():
         self.buffer = bytearray()
         self.callback = callback
         self.max_packets_combined = max_packets_combined
+        # self.stats = ffi.new('struct MODEM_STATS *')
 
         lib.freedv_set_frames_per_burst(self.modem, 1)
 
@@ -64,6 +65,13 @@ class Modem():
         lib.freedv_get_modem_stats(self.modem,sync,snr)
 
         return snr[0]
+
+    # @property
+    # def extendedStats(self):
+    #     lib.freedv_get_modem_extended_stats(self.modem, self.stats)
+    #     logging.debug(self.stats)
+    #     return self.stats
+
 
     @property
     def sync(self) -> float:

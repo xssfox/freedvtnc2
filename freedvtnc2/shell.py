@@ -1,17 +1,20 @@
-from prompt_toolkit import Application
-from prompt_toolkit.buffer import Buffer
+from prompt_toolkit import  Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import HSplit, Window, VSplit
-from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
+from prompt_toolkit.layout.processors import Transformation, Processor
 from prompt_toolkit.layout.dimension import LayoutDimension
 from prompt_toolkit.widgets import TextArea, ProgressBar
 from prompt_toolkit.document import Document
 from prompt_toolkit.styles import Style
+from io import StringIO
+import re
+
+from prompt_toolkit.formatted_text import HTML, fragment_list_to_text, to_formatted_text
 from prompt_toolkit.key_binding.bindings.page_navigation import scroll_page_up, scroll_page_down
-import time
 import logging
-from prompt_toolkit.completion import WordCompleter, NestedCompleter
+from prompt_toolkit.completion import NestedCompleter
 import sys
 from . import audio
 import readline
@@ -26,15 +29,11 @@ import configargparse
 
 
 class LogHandler(logging.StreamHandler):
-    def __init__(self, text_area:TextArea):
-        self.text_area = text_area
+    def __init__(self, callback: callable):
+        self.callback = callback
         super().__init__()
     def emit(self, record):
-        
-        msg = self.text_area.text + self.format(record) + "\n"
-        self.text_area.buffer.document = Document(
-                text=msg, cursor_position=len(msg)
-        )
+        self.callback(record + "\n")
 
 class FreeDVShellCommands():
     def __init__(self, modem_tx: FreeDVTX, output_device: audio.OutputDevice, parser: configargparse.ArgParser, options:argparse.Namespace):
@@ -213,7 +212,36 @@ class FreeDVShellCommands():
             )
 
         return (f"Saved config to {path}")
+    
+
+    
+class FormatText(Processor):
+    def apply_transformation(self, transformation_input):
+        fragments = to_formatted_text(HTML(fragment_list_to_text(transformation_input.fragments)))
+        return Transformation(fragments)
 class FreeDVShell():
+    style = Style(
+        [
+            ("output-field", "#ffffff"),
+            ("status.red", "#ff0000"),
+            ("status.green", "#00ff00"),
+            ("status.yellow", "#ffff00"),
+            ("input-field", "#ffffff bg:#000000"),
+            ("line", "#004400"),
+            ("progress-bar.used","reverse"),
+            ("progress-bar","bg:#bbbbbb"),
+            ("log.debug","#757575"),
+            ("log.info.name", 'bold'),
+            ("log.info.module", 'bold'),
+            ("log.warning", 'bold'),
+            ("log.warning.name", 'bold #ffff00'),
+            ("log.warning.module", 'bold #ffff00'),
+            ("log.critical.name", 'bold #ff0000'),
+            ("log.critical.module", 'bold #ff0000'),
+            ("log.critical.msg", 'bold #ff0000'),
+            ("log.chat.callsign", 'bold #00ff00'),
+        ]
+    )
     def __init__(self, modem_rx: FreeDVRX, modem_tx: FreeDVTX, output_device: audio.OutputDevice, input_device: audio.InputDevice, parser:  configargparse.ArgParser, options: argparse.Namespace, logs:str):
         self.modem_tx = modem_tx
         self.modem_rx = modem_rx
@@ -222,18 +250,35 @@ class FreeDVShell():
 
         self.logger = logging.getLogger()
         self.shell_commands = FreeDVShellCommands(modem_tx, output_device, parser, options)
-        self.log = TextArea(
-            text=logs,
+        self.log_text_area = TextArea(
+            text="",
             scrollbar=True,
             line_numbers=False,
+            input_processors=[FormatText()]
         )
-    def add_text(self, text):
-        new_text = self.log.text + text
+    
+        self.logs = []
+        
+        
+        self.add_text(logs)
 
-        # Add text to output buffer.
-        self.log.buffer.document = Document(
-            text=new_text, cursor_position=len(new_text)
+
+    def add_text(self, text: list[tuple]):
+        self.logs += text
+        out_html = ""
+        for log in self.logs:
+            
+            for line in re.split('(\n)', log[1]):
+                if line == "\n":
+                    out_html += "\n"
+                else:
+                    out_html += f"<{log[0].replace('class:','')}>{line}</{log[0].replace('class:','')}>"
+        self.log_text_area.buffer.document = Document(
+            text=out_html, cursor_position=len(out_html)
         )
+
+
+
     def progress(self, total:int, remaining:int, mode:str):
         self.pb.percentage = ((total - remaining)/total)*100
         self.pb_text.buffer.document = Document(f" {(total - remaining)}/{total} bytes [{mode}]")
@@ -241,7 +286,7 @@ class FreeDVShell():
         
         def accept(buff):
             try:
-                self.add_text (f"> {input_field.text}\n")
+                self.add_text([("class:userinput", f"> {input_field.text}\n")])
 
                 command, arg = input_field.text.split(" ", 1)
             except ValueError:
@@ -255,6 +300,8 @@ class FreeDVShell():
                         output = str(command_result) + "\n"
                     else:
                         output = ""
+                    if command == "debug": # special case the debug shell
+                        logging.debug("debug shell")
                 except KeyboardInterrupt:
                     raise KeyboardInterrupt
                 except:
@@ -262,7 +309,7 @@ class FreeDVShell():
             except Exception:
                 output = "Invalid command. Valid commands: " + ", ".join(self.shell_commands.commands) + "\n"
             
-            self.add_text(output)
+            self.add_text([("class:commandoutput", output)])
         
         input_field = TextArea(
             height=3,
@@ -343,7 +390,7 @@ class FreeDVShell():
                 style="class:status",
             ),
             Window(height=1, char="-", style="class:line"),
-            self.log,
+            self.log_text_area,
             Window(height=1, char="-", style="class:line"),
             self.pbsplit,
             input_field
@@ -353,6 +400,7 @@ class FreeDVShell():
 
         @kb.add("c-c")
         @kb.add("c-q")
+        @kb.add("c-d")
         def _(event):
             "Pressing Ctrl-Q or Ctrl-C will exit the user interface."
             raise KeyboardInterrupt
@@ -360,36 +408,25 @@ class FreeDVShell():
         @kb.add("pageup")
         def _(event):
             w = event.app.layout.current_window
-            event.app.layout.focus(self.log.window)
+            event.app.layout.focus(self.log_text_area)
             scroll_page_up(event)
             event.app.layout.focus(w)
 
         @kb.add("pagedown")
         def _(event):
             w = event.app.layout.current_window
-            event.app.layout.focus(self.log.window)
+            event.app.layout.focus(self.log_text_area)
             scroll_page_down(event)
             event.app.layout.focus(w)
 
-        style = Style(
-        [
-            ("output-field", "bg:#000044 #ffffff"),
-            ("status.red", "bg:#000000 #ff0000"),
-            ("status.green", "bg:#000000 #00ff00"),
-            ("status.yellow", "bg:#000000 #ffff00"),
-            ("input-field", "bg:#000000 #ffffff"),
-            ("line", "#004400"),
-            ("progress-bar.used","bg:#ffffff"),
-            ("progress-bar","bg:#444444"),
-        ]
-    )
 
-        app = Application(
+
+        self.app = Application(
              layout=Layout(root_container, focused_element=input_field),
              full_screen=True,
              key_bindings=kb,
              mouse_support=False,
              refresh_interval=0.2,
-             style=style
+             style=self.style
              )
-        app.run()
+        self.app.run()

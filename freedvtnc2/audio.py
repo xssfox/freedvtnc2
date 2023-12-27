@@ -219,7 +219,6 @@ class OutputDevice():
                     stream_callback=self.pa_callback,
                     frames_per_buffer=4096
                 )
-        logging.debug("started output debug")
 
         self.ptt_trigger = ptt_trigger
         self.ptt_release = ptt_release
