@@ -24,6 +24,7 @@ if __name__ == '__main__':
 
     p.add('--mode', type=str, choices=[x.name for x in Modems], default=Modems.DATAC1.name, help="The TX mode for the modem. The modem will receive all modes at once")
     p.add('--follow', action="store_true", default=False, env_var="FREEDVTNC2_FOLLOW", help="When enabled change TX mode to the mode being received. This is useful for stations operating automatically.")
+    p.add('--max-packets-combined', default=5, type=int, env_var="FREEDVTNC2_MAX_PACKETS", help="How many kiss packets to combine into a single transmission")
 
     p.add('--pts', default=False, action='store_true', env_var="FREEDVTNC2_PTS", help="Disables TCP and instead creates a PTS 'fake serial' interface")
     p.add('--kiss-tcp-port', default=8001, type=int, env_var="FREEDVTNC2_KISS_TCP_PORT")

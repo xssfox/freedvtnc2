@@ -140,7 +140,17 @@ class FreeDVShellCommands():
         except ValueError:
             return "Usage is: volume -4.5"
         return f"Set TX volume to {float(arg)} db"
-
+    def do_max_packets_combined(self,arg):
+        "Set the max number of packets to combine together for a single transmission"
+        if arg == "":
+            return f"max_packets_combined: {self.options.max_packets_combined}"
+        try: 
+            self.modem_tx.max_packets_combined = int(arg)
+            self.options.max_packets_combined = int(arg)
+        except ValueError:
+            return "Usage is: max_packets_combined 5"
+        return f"Set max_packets_combined to {int(arg)}"
+    
     def do_callsign(self,arg):
         "Sets callsign - example: callsign N0CALL"
         self.options.callsign = arg
@@ -231,10 +241,8 @@ class FreeDVShell():
         
         def accept(buff):
             try:
-                new_text =  self.log.text + f"> {input_field.text}\n"
-                self.log.buffer.document = Document(
-                    text=new_text, cursor_position=(len(new_text))
-                )
+                self.add_text (f"> {input_field.text}\n")
+
                 command, arg = input_field.text.split(" ", 1)
             except ValueError:
                 command = input_field.text
@@ -254,12 +262,7 @@ class FreeDVShell():
             except Exception:
                 output = "Invalid command. Valid commands: " + ", ".join(self.shell_commands.commands) + "\n"
             
-            new_text = self.log.text + output
-
-            # Add text to output buffer.
-            self.log.buffer.document = Document(
-                text=new_text, cursor_position=len(new_text)
-            )
+            self.add_text(output)
         
         input_field = TextArea(
             height=3,

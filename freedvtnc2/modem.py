@@ -30,11 +30,12 @@ class Packet():
     mode: str = None
 
 class Modem():
-    def __init__(self, modem: Modems,  callback: Callable[[FreeDVFrame],None]|None=None):
+    def __init__(self, modem: Modems,  callback: Callable[[FreeDVFrame],None]|None=None, max_packets_combined: int = 5):
         self.modem = lib.freedv_open(modem.value)
         self.modem_name = modem.name
         self.buffer = bytearray()
         self.callback = callback
+        self.max_packets_combined = max_packets_combined
 
         lib.freedv_set_frames_per_burst(self.modem, 1)
 
@@ -179,7 +180,7 @@ class Modem():
             # can we fit a little more data in?
             
             # 2 for crc
-            if number_combined > 5: # limit to 5 packets combined - probably turn this into an option
+            if number_combined > self.max_packets_combined: # limit to 5 packets combined - probably turn this into an option
                 if queue:
                     logging.debug("max combined frames reached")
                     frames.append(frame)
@@ -309,7 +310,7 @@ class FreeDVRX():
 
 
 class FreeDVTX():
-    def __init__(self, modem: str = Modems.DATAC1.name):
+    def __init__(self, modem: str = Modems.DATAC1.name, max_packets_combined: int = 5):
         self.modem = Modem(modem={x.name:x for x in Modems}[modem])
     def set_mode(self,  modem: str):
         self.modem = Modem(modem={x.name:x for x in Modems}[modem])
