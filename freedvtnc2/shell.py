@@ -18,7 +18,7 @@ import readline
 import code
 import rlcompleter
 import pydub.generators
-from .modem import Modems, FreeDVRX, FreeDVTX
+from .modem import Modems, FreeDVRX, FreeDVTX, Packet
 import traceback
 from pathlib import Path
 import argparse
@@ -84,7 +84,8 @@ class FreeDVShellCommands():
             bit_depth=16,
             ).to_audio_segment(2000, volume=-6)
         sin_wave.set_channels(1)
-        self.output_device.write(sin_wave.raw_data)
+        
+        self.output_device.write_raw(sin_wave.raw_data)
 
     def help_mode(self):
         return f"Change TX Mode: mode [{', '.join([x.name for x in Modems])}]"
@@ -110,6 +111,8 @@ class FreeDVShellCommands():
     def do_clear(self, arg):
         "Clears TX queues"
         self.output_device.clear()
+        with self.output_device.send_queue_lock:
+            self.output_device.send_queue = []
         return "TX buffer cleared"
 
     def do_list_audio_devices(self, arg):
@@ -124,7 +127,7 @@ class FreeDVShellCommands():
 
     def do_send_string(self, arg):
         "Sends string over the modem"
-        self.output_device.write(self.modem_tx.write(arg.encode()))
+        self.output_device.write(Packet(arg.encode()))
         return "Queued for sending"
 
     def do_volume(self,arg):
@@ -149,8 +152,7 @@ class FreeDVShellCommands():
            return "Set callsign with the callsign command first\n"
 
         data =  self.options.callsign.encode() + b"\xff" + arg.encode()
-
-        self.output_device.write(self.modem_tx.write(data, header_byte=b"\xfe"))
+        self.output_device.write(Packet(data, header=b"\xfe"))
         
     def do_exit(self, arg):
         "Exits FreeDVTNC2"
@@ -229,7 +231,7 @@ class FreeDVShell():
         
         def accept(buff):
             try:
-                new_text =  self.log.text + f"\n> {input_field.text}\n"
+                new_text =  self.log.text + f"> {input_field.text}\n"
                 self.log.buffer.document = Document(
                     text=new_text, cursor_position=(len(new_text))
                 )
@@ -295,7 +297,8 @@ class FreeDVShell():
                 (f"class:status.{ 'red' if self.output_device.ptt else 'green' }", f"{ ' on' if self.output_device.ptt else 'off' }"),
                 ("class:status", f" | "),
 
-                ("class:status", f"TX Queue: { (self.output_device.queue_ms / 1000) :5.1f}s | "),
+                ("class:status", f"Audio Queue: { (self.output_device.queue_ms / 1000) :5.1f}s | "),
+                ("class:status", f"TX Queue: { len(self.output_device.send_queue) :3.0f} | "),
                 ("class:status", f"Channel: "),
                 (f"class:status.{'red' if self.output_device.inhibit else 'green'}", f"{'busy' if self.output_device.inhibit else 'clear'}"),
                 ("class:status", " |\n"),

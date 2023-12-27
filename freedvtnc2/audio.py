@@ -4,11 +4,12 @@ from tabulate import tabulate
 import logging
 import audioop as pyaudioop
 import time
-from threading import Lock
+from threading import Lock, Thread
 from typing import Callable
 #from pydub import pyaudioop
 import pydub
 import math
+from .modem import FreeDVTX, Packet
 
 p = pyaudio.PyAudio()
 
@@ -161,8 +162,10 @@ class OutputDevice():
     buffer = bytearray()
 
     output_buffer_lock = Lock()
+    send_queue_lock = Lock()
 
     inhibit = False
+    output_buffer_thread = None
 
     @property
     def queue_ms(self):
@@ -170,6 +173,7 @@ class OutputDevice():
 
     def __init__(self, 
                  sample_rate: int,
+                 modem: FreeDVTX,
                  name_or_id:int|str|None=None, 
                  ptt_trigger:Callable[[],None]=None, 
                  ptt_release:Callable[[],None]=None, 
@@ -182,6 +186,8 @@ class OutputDevice():
         self.ptt_on_delay_ms = ptt_on_delay_ms
         self.ptt_off_delay_ms = ptt_off_delay_ms
         self.db = db
+        self.send_queue = []
+        self.modem = modem
 
         if name_or_id != None:
             try:
@@ -219,13 +225,46 @@ class OutputDevice():
         self.ptt_release = ptt_release
         self.ptt = False
 
+    def write_raw(self,data:bytes):
+        if self.device.sample_rate != self.sample_rate:
+            (data, self.rate_state) = pyaudioop.ratecv(
+                data, 
+                pyaudio.get_sample_size(FORMAT),
+                1,
+                self.sample_rate,
+                self.device.sample_rate,
+                self.rate_state,
+            )
+        
+        if self.db:
+            data = pyaudioop.mul(data, 2, 10**(self.db/20.0))
 
-    def write(self, data: bytes):
+        if self.device.output_channels == 2:
+                    data = pyaudioop.tostereo(
+                        data,
+                        pyaudio.get_sample_size(FORMAT),
+                        1,
+                        1
+                    )
+        with self.output_buffer_lock:
+            self.buffer += data
+
+    def write(self, data: Packet):
+        with self.send_queue_lock:
+            self.send_queue.append(data)
+    
+    def audio_buffer(self):
+        logging.debug("Populating audio buffer")
         # ptt delay
         pre_silence = pydub.AudioSegment.silent(duration=self.ptt_on_delay_ms, frame_rate=self.device.sample_rate)
         pre_silence = pre_silence.set_channels(self.device.output_channels)
         write_buffer = pre_silence.raw_data
         
+        with self.send_queue_lock:
+            send_queue = self.send_queue
+            self.send_queue = []
+        data = self.modem.write(send_queue)
+
         if self.device.sample_rate != self.sample_rate:
             (data, self.rate_state) = pyaudioop.ratecv(
                 data, 
@@ -265,6 +304,7 @@ class OutputDevice():
 
         ptt = False
 
+
         # if we aren't transmitting and we have inhibited tx then skip
         if self.inhibit == True and self.ptt == False:
             return (bytes(output), pyaudio.paContinue)
@@ -274,6 +314,10 @@ class OutputDevice():
             output[:chunk_size] = self.buffer[:chunk_size]
             if self.buffer:
                 ptt = True
+            elif self.send_queue and (not self.output_buffer_thread or not self.output_buffer_thread.is_alive()):
+                # if we have no output buffer and queued messages we should start a thread to generate an output buffer
+                self.output_buffer_thread = Thread(target=self.audio_buffer)
+                self.output_buffer_thread.start()
             del self.buffer[:chunk_size]
 
         if self.ptt != ptt:

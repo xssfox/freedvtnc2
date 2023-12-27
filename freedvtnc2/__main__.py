@@ -87,7 +87,7 @@ if __name__ == '__main__':
         def tx(data):
             try:
                 logging.debug(f"Sending {str(data)}")
-                output_device.write(modem_tx.write(data))
+                output_device.write(Packet(data))
             except:
                 logging.critical(
                     traceback.format_exc()
@@ -151,6 +151,7 @@ if __name__ == '__main__':
         input_device = audio.InputDevice(modem_rx.write, modem_rx.sample_rate, name_or_id=input_device_name_or_id)
         output_device = audio.OutputDevice(
             modem_rx.sample_rate,
+            modem = modem_tx,
             name_or_id=output_device_name_or_id,
             ptt_release=ptt_release,
             ptt_trigger=ptt_trigger,

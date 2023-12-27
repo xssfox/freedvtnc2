@@ -23,7 +23,11 @@ class FreeDVFrame:
     snr: float
     modem: Modems
 
-
+@dataclass
+class Packet():
+    data: bytes
+    header: int|bytes = b"\xff"
+    mode: str = None
 
 class Modem():
     def __init__(self, modem: Modems,  callback: Callable[[FreeDVFrame],None]|None=None):
@@ -113,7 +117,7 @@ class Modem():
         data_in = ffi.from_buffer(f"unsigned char[{self.bytes_per_frame - 2}]", data)
         return lib.freedv_gen_crc16(data_in, self.bytes_per_frame - 2).to_bytes(2, byteorder="big")
 
-    def modulate(self, data: bytes, header_byte=b'\xff') -> bytes:
+    def modulate(self, queue: list[Packet]) -> bytes:
         """
         Modulates bytes into audio samples (also bytes)
         """
@@ -131,46 +135,62 @@ class Modem():
         """
         
         # Convert to byte array as it will be easier to slice 
-        data = bytearray(data)
-        chunks = []
-
-        pop_packet_length = self.bytes_per_frame - 2 - 3 # first iteration we use 3 bytes for the header
-        while data:
-            chunks.append(data[:pop_packet_length])
-            del data[:pop_packet_length]
-            pop_packet_length = self.bytes_per_frame - 2 - 1 # next iterations only use 1 byte for sequence
-
-
         frames = []
-
-        # first frame includes header
+        pop_packet_length = self.bytes_per_frame - 2 - 3 # first iteration we use 3 bytes for the header
         frame=bytearray(self.bytes_per_frame)
+        used_bytes = 0
+        while queue:
+            packet = queue.pop(0)
+            data = bytearray(packet.data)
+            chunks = []
+            header_byte = packet.header
+            
+            while data:
+                chunks.append(data[:pop_packet_length])
+                del data[:pop_packet_length]
+                pop_packet_length = self.bytes_per_frame - 2 - 1 # next iterations only use 1 byte for sequence
 
-        # header
-        frame[0:3] = header_byte + sum([len(x) for x in chunks]).to_bytes(2)
 
-        # data
-        frame[3:3+len(chunks[0])] = chunks[0]
-
-        # crc
-        frame[-2:] = self.crc(bytes(frame)[:-2])
-
-        frames.append(frame)
-
-        for seq, next_chunk in enumerate(chunks[1:]):
-            frame=bytearray(self.bytes_per_frame)
             # header
-            frame[0] = seq
-           
-            frame[1:1+len(next_chunk)] = next_chunk
+            header = header_byte + sum([len(x) for x in chunks]).to_bytes(2)
+            frame[0+used_bytes:3+used_bytes] = header
 
-            # crc
-            frame[-2:] = self.crc(bytes(frame)[:-2])
+            chunk = chunks[0]
 
-            frames.append(frame)
+            # data
+            frame[3+used_bytes:3+len(chunk)+used_bytes] = chunk
+            used_bytes = used_bytes + len(chunk) + len(header) 
+
+
+            for header, chunk in enumerate(chunks[1:]):
+                used_bytes = 0
+                frames.append(frame)
+                frame=bytearray(self.bytes_per_frame)
+                # header
+                header = header.to_bytes(1)
+                frame[0:len(header)] = header
+            
+                frame[1:1+len(chunk)] = chunk
+                used_bytes = used_bytes + len(chunk) + len(header) 
+
+            # can we fit a little more data in?
+            
+            # 2 for crc
+            if used_bytes + 2 <= self.bytes_per_frame - 3: # we need three bytes to start the next payload
+                pop_packet_length = self.bytes_per_frame - used_bytes - 2 - 3
+            else:
+                if queue:
+                    frames.append(frame)
+                    frame=bytearray(self.bytes_per_frame)
+                    used_bytes = 0
+                    pop_packet_length = self.bytes_per_frame - 2 - 3
+        frames.append(frame)
 
         output = bytes()
         for frame in frames:
+            # calculate CRCs
+            frame[-2:] = self.crc(bytes(frame)[:-2])
+            #logging.debug(f"modulating {str(bytes(frame))}")
 
             from_modem = ffi.new(f"short mod_out[{lib.freedv_get_n_tx_modem_samples(self.modem)}]")
             
@@ -187,18 +207,14 @@ class Modem():
             #postamble
             samples=lib.freedv_rawdatapostambletx(self.modem, from_modem)
             output += ffi.buffer(from_modem)[:(samples*ffi.sizeof("short"))]
-            
         
+            
         # add an extra bit of silence to clear out buffers
         output += bytes(lib.freedv_get_n_nom_modem_samples(self.modem)*ffi.sizeof("short")*2)
-            
+                
         return output
 
-@dataclass
-class Packet():
-    data: bytes
-    header: int
-    mode: str
+
 
 class FreeDVRX():
     def __init__(self, callback: Callable[[bytes],None], progress: Callable[[int,int],None], inhibit: Callable[[bool],None]):
@@ -234,45 +250,55 @@ class FreeDVRX():
     def rx(self, data_frame: FreeDVFrame):
         logging.debug(f"Received data. snr:{data_frame.snr}")
         data = bytearray(data_frame.data)
-        header = data.pop(0)
-        if header > 200: # start of packet
-            self.remaining_bytes = int.from_bytes(data[0:2])
-            self.total_bytes = self.remaining_bytes
-            del data[0:2]
-            logging.debug(f"Found packet start - Expecting {self.remaining_bytes} bytes")
-            self.next_seq_number = 0
-            self.partial_data=b''
-            self.header = header
-        elif self.next_seq_number != None: # should be a seq number
-            if self.next_seq_number != header:
-                logging.debug(f"Missing data - header seq expected {self.next_seq_number}, got {header}")
+        while data:
+            #logging.debug(f"Received data: {str(data)}")
+            header = data.pop(0)
+            if header > 200: # start of packet
+                self.remaining_bytes = int.from_bytes(data[0:2])
+                self.total_bytes = self.remaining_bytes
+                del data[0:2]
+                logging.debug(f"Found packet start - Expecting {self.remaining_bytes} bytes")
+                self.next_seq_number = 0
+                self.partial_data=b''
+                self.header = header
+            elif self.next_seq_number != None: # should be a seq number
+                if self.next_seq_number != header:
+                    logging.debug(f"Missing data - header seq expected {self.next_seq_number}, got {header}")
+                    logging.debug(f"Full data frame: {str(data_frame.data)}")
+                    self.next_seq_number = None
+                    self.remaining_bytes = None
+                    return
+                else:
+                    logging.debug(f"Received frame {header}")
+                    self.next_seq_number += 1
+                    
+            else:
+                if header != 0:
+                    logging.debug(f"Not expecting data - got {header}")
+                    logging.debug(f"Full data frame: {str(data_frame.data)}")
                 self.next_seq_number = None
                 self.remaining_bytes = None
                 return
+            self.partial_data += data[:self.remaining_bytes]
+            received_bytes = len(data[:self.remaining_bytes])
+            self.remaining_bytes -= received_bytes
+
+            logging.debug(f"Seq: {header} Remaining data: {self.remaining_bytes}")
+
+            self.progress(self.total_bytes, self.remaining_bytes, data_frame.modem)
+            if self.remaining_bytes == 0:
+                self.next_seq_number = None
+                del data[:received_bytes]
+                self.remaining_bytes = None
+                self.callback(Packet(header=self.header, data=self.partial_data, mode=data_frame.modem))
             else:
-                logging.debug(f"Received frame {header}")
-                self.next_seq_number += 1
-                
-        else:
-            logging.debug(f"Not expecting data - got {header}")
-            self.next_seq_number = None
-            self.remaining_bytes = None
-            return
-        self.partial_data += data[:self.remaining_bytes]
-        self.remaining_bytes -= len(data[:self.remaining_bytes])
+                return
 
-        logging.debug(f"Seq: {header} Remaining data: {self.remaining_bytes}")
-
-        self.progress(self.total_bytes, self.remaining_bytes, data_frame.modem)
-        if self.remaining_bytes == 0:
-            self.next_seq_number = None
-            self.remaining_bytes = None
-            self.callback(Packet(header=self.header, data=self.partial_data, mode=data_frame.modem))
 
 class FreeDVTX():
     def __init__(self, modem: str = Modems.DATAC1.name):
         self.modem = Modem(modem={x.name:x for x in Modems}[modem])
     def set_mode(self,  modem: str):
         self.modem = Modem(modem={x.name:x for x in Modems}[modem])
-    def write(self, data: bytes, header_byte=b'\xff'):
-        return self.modem.modulate(data, header_byte)
+    def write(self, data: list[Packet]):
+        return self.modem.modulate(data)
