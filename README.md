@@ -22,12 +22,8 @@ Instructions for a raspberrypi. Requires bookworm or python 3.11 to be installed
 ```sh
 # install required system packages
 sudo apt-get update
-sudo apt install git build-essential cmake portaudio19-dev python3 python3-dev libhamlib-utils python3-venv
+sudo apt install git build-essential cmake portaudio19-dev python3 python3-dev libhamlib-utils
 
-# install pipx - either like this
-python3 -m pip install --user pipx
-python3 -m pipx ensurepath
-# or
 sudo apt install pipx
 pipx ensurepath
 
@@ -42,6 +38,7 @@ cd build_linux
 cmake ..
 make
 sudo make install
+sudo ldconfig
 
 # install freedvtnc2
 pipx install freedvtnc2
