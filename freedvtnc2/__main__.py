@@ -7,6 +7,8 @@ from . import tnc
 import time
 from . import rigctl
 import traceback
+from prompt_toolkit.formatted_text import HTML, to_formatted_text
+
 logging.basicConfig()
 
 if __name__ == '__main__':
@@ -48,13 +50,14 @@ if __name__ == '__main__':
         shell = None
         def __init__(self):
             super().__init__()
-            self.log_buffer = []
+            self.log_buffer = ""
         def emit(self, record):
-            msg = [
-                (f"class:log.{record.levelname.lower()}.name", record.name),
-                (f"class:log.{record.levelname.lower()}.module", f":{record.module}:"),
-                (f"class:log.{record.levelname.lower()}.msg", f":{record.msg}\n")
-            ]
+            if record.name == "root" and record.module == "__main__":
+                msg = HTML(f"<log.{record.levelname.lower()}.msg>{{}}</log.{record.levelname.lower()}.msg>\n").format(record.msg).value
+            else:
+                msg = HTML(f"<log.{record.levelname.lower()}.name>{{}}</log.{record.levelname.lower()}.name>").format(record.name).value
+                msg += HTML(f":<log.{record.levelname.lower()}.module>{{}}</log.{record.levelname.lower()}.module>").format(record.module).value
+                msg += HTML(f": <log.{record.levelname.lower()}.msg>{{}}</log.{record.levelname.lower()}.msg>\n").format(record.msg,).value
 
             if options.no_cli:
                 print(self.format(record))
@@ -89,7 +92,7 @@ if __name__ == '__main__':
         )
     else:
         modem_tx = FreeDVTX(modem=options.mode, max_packets_combined=options.max_packets_combined)
-
+        logging.info(f"Initialised TX FreeDV Modem - version: {modem_tx.modem.version} mode: {modem_tx.modem.modem_name}")
         def tx(data):
             try:
                 logging.debug(f"Sending {str(data)}")
@@ -114,16 +117,14 @@ if __name__ == '__main__':
                     # ignoring debug messages - this is the only place where we have this issues - if we add more threaded output
                     # we should move this into a dedicated function
                     if not options.no_cli: 
-                        shell.add_text([
-                            ("class:chat.callsign", f"<{call.decode()}>"),
-                            ("class:chat.message",f"{message.decode()}\n")
-                            ]
+                        shell.add_text(
+                            HTML("<chat.callsign>&lt;{}&gt;</chat.callsign> <chat.message>{}</chat.message>\n").format(call.decode(), message.decode()).value
                         )
                     else:
                         print(f"\n<{call.decode()}> {message.decode()}")
                 
                 if options.follow and data.mode != modem_tx.modem.modem_name:
-                    logging.info(f"Switching to {data.mode}")
+                    logging.info(f"Follow mode active. Switching to {data.mode}")
                     modem_tx.set_mode(modem=data.mode)
             except:
                 logging.critical(
@@ -132,14 +133,20 @@ if __name__ == '__main__':
                 
         if options.pts:
             tnc_interface = tnc.KissInterface(tx)
+            logging.info(f"Initialised KISS TNC PTS Interface at {tnc_interface.ttyname}")
         else:
             tnc_interface = tnc.KissTCPInterface(tx, port=options.kiss_tcp_port, address=options.kiss_tcp_address)
-            
+            logging.info(f"Initialised KISS TNC TCP Interface at {options.kiss_tcp_address}:{options.kiss_tcp_port}")
+        
+        
+
         def inhibit(state):
             if "output_device" in  locals():
                 output_device.inhibit = state
 
         modem_rx = FreeDVRX(callback=rx, progress=progress, inhibit=inhibit)
+        for rx_modem in modem_rx.modems:
+            logging.info(f"Initialised RX FreeDV Modem - version: {modem_tx.modem.version} mode: {rx_modem.modem_name}")
 
         input_device_name_or_id = options.input_device
         output_device_name_or_id = options.output_device
@@ -152,6 +159,7 @@ if __name__ == '__main__':
         
         if options.rigctld_port != 0:
             rig = rigctl.Rigctld(hostname=options.rigctld_host, port=options.rigctld_port)
+            logging.info(f"Initialised Rigctl at {options.rigctld_host}:{options.rigctld_port}")
             ptt_trigger = rig.ptt_enable
             ptt_release = rig.ptt_disable
         else:
@@ -159,6 +167,7 @@ if __name__ == '__main__':
             ptt_release = None
         
         input_device = audio.InputDevice(modem_rx.write, modem_rx.sample_rate, name_or_id=input_device_name_or_id)
+        logging.info(f"Initialised Input Audio: {input_device.device.name}")
         output_device = audio.OutputDevice(
             modem_rx.sample_rate,
             modem = modem_tx,
@@ -169,10 +178,13 @@ if __name__ == '__main__':
             ptt_off_delay_ms=options.ptt_off_delay_ms,
             db=options.output_volume
         )
+        logging.info(f"Initialised Output Audio: {output_device.device.name}")
 
         try:
             if not options.no_cli:
-                shell = FreeDVShell(modem_rx, modem_tx, output_device, input_device, p, options, log_handler.log_buffer)
+                logging.debug(f"Starting shell")
+                shell = FreeDVShell(modem_rx, modem_tx
+                , output_device, input_device, p, options, log_handler.log_buffer)
                 log_handler.shell = shell
                 shell.run()
             else:

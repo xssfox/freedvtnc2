@@ -126,6 +126,8 @@ class FreeDVShellCommands():
 
     def do_send_string(self, arg):
         "Sends string over the modem"
+        if not arg:
+            return "Usage: send_string meow"
         self.output_device.write(Packet(arg.encode()))
         return "Queued for sending"
 
@@ -236,10 +238,12 @@ class FreeDVShell():
             ("log.warning", 'bold'),
             ("log.warning.name", 'bold #ffff00'),
             ("log.warning.module", 'bold #ffff00'),
+            ("log.error.name", 'bold #ff0000'),
+            ("log.error.module", 'bold #ff0000'),
             ("log.critical.name", 'bold #ff0000'),
             ("log.critical.module", 'bold #ff0000'),
             ("log.critical.msg", 'bold #ff0000'),
-            ("log.chat.callsign", 'bold #00ff00'),
+            ("chat.callsign", 'bold #00ff00'),
         ]
     )
     def __init__(self, modem_rx: FreeDVRX, modem_tx: FreeDVTX, output_device: audio.OutputDevice, input_device: audio.InputDevice, parser:  configargparse.ArgParser, options: argparse.Namespace, logs:str):
@@ -257,24 +261,17 @@ class FreeDVShell():
             input_processors=[FormatText()]
         )
     
-        self.logs = []
+        self.logs = ""
         
         
         self.add_text(logs)
 
 
-    def add_text(self, text: list[tuple]):
+    def add_text(self, text: str):
         self.logs += text
-        out_html = ""
-        for log in self.logs:
-            
-            for line in re.split('(\n)', log[1]):
-                if line == "\n":
-                    out_html += "\n"
-                else:
-                    out_html += f"<{log[0].replace('class:','')}>{line}</{log[0].replace('class:','')}>"
+        # out_html += f"<{log[0].replace('class:','')}>{line}</{log[0].replace('class:','')}>"
         self.log_text_area.buffer.document = Document(
-            text=out_html, cursor_position=len(out_html)
+            text=self.logs, cursor_position=len(self.logs)
         )
 
 
@@ -286,7 +283,7 @@ class FreeDVShell():
         
         def accept(buff):
             try:
-                self.add_text([("class:userinput", f"> {input_field.text}\n")])
+                self.add_text(HTML("<userinput>&gt; {}</userinput>\n").format(input_field.text).value)
 
                 command, arg = input_field.text.split(" ", 1)
             except ValueError:
@@ -308,8 +305,8 @@ class FreeDVShell():
                     output = traceback.format_exc() + "\n"
             except Exception:
                 output = "Invalid command. Valid commands: " + ", ".join(self.shell_commands.commands) + "\n"
-            
-            self.add_text([("class:commandoutput", output)])
+            for line in output.split("\n"):
+                self.add_text(HTML("<commandoutput>{}</commandoutput>\n").format(line).value)
         
         input_field = TextArea(
             height=3,

@@ -41,6 +41,10 @@ class Modem():
         lib.freedv_set_frames_per_burst(self.modem, 1)
 
     @property
+    def version(self) -> int:
+        return lib.freedv_get_version()
+
+    @property
     def nin(self) -> int:
         """
         Number of bytes that the modem is expecting to process (freedv api is number of shorts - we use bytes to make things easier)
