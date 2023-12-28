@@ -11,7 +11,7 @@ from prompt_toolkit.formatted_text import HTML, to_formatted_text
 
 logging.basicConfig()
 
-if __name__ == '__main__':
+def main():
     p = configargparse.ArgParser(default_config_files=['~/.freedvtnc2.conf'], config_file_parser_class=configargparse.DefaultConfigFileParser)
     p.add('-c', '-config', required=False, is_config_file=True, help='config file path')
 
@@ -193,6 +193,9 @@ if __name__ == '__main__':
                     time.sleep(0.1)
         except KeyboardInterrupt:
             log_handler.shell = None
-            rig.ptt_disable()
+            if "rig" in locals():
+                rig.ptt_disable()
             input_device.close()
             output_device.close()
+if __name__ == '__main__':
+    main()

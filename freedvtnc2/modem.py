@@ -1,4 +1,4 @@
-from ._freedv_cffi import ffi, lib
+from _freedv_cffi import ffi, lib
 
 from typing import Callable
 from dataclasses import dataclass

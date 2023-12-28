@@ -9,3 +9,5 @@ TODO
 *.s16
 *.data
 .DS_Store
+build
+dist

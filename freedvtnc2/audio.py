@@ -94,10 +94,8 @@ class InputDevice():
 
         logging.debug(f"Opening {self.device.name} for input")
 
-        if self.device.input_channels > 2:
-            raise NotImplementedError("Inputs with greater than 2 channels not supported")
-        if self.device.input_channels == 2:
-            logging.warning("Stereo input detected - Only the left channel will be used")
+        if self.device.input_channels >= 2:
+            logging.warning("Stereo (or more) input detected - Only the first/left channel will be used")
 
         if self.device.sample_rate < sample_rate:
             logging.critical(f"Input audio device sample rate {self.device.sample_rate} is less than modems sample rate {sample_rate} - this will cause problems")
@@ -204,11 +202,16 @@ class OutputDevice():
 
         logging.debug(f"Opening {self.device.name} for output")
 
-        if self.device.input_channels > 2:
-            raise NotImplementedError("Inputs with greater than 2 channels not supported")
+        if self.device.output_channels > 2:
+            logging.warning("Output detected with more than 2 channels. We'll try to open the device with 2 channels")
+            self.device.output_channels = 2
 
         if self.device.sample_rate < sample_rate:
             logging.critical(f"Output audio device sample rate {self.device.sample_rate} is less than modems sample rate {sample_rate} - this will cause problems")
+
+        self.ptt_trigger = ptt_trigger
+        self.ptt_release = ptt_release
+        self.ptt = False
 
         self.stream = p.open(format=FORMAT,
                     channels=self.device.output_channels,
@@ -220,9 +223,7 @@ class OutputDevice():
                     frames_per_buffer=4096
                 )
 
-        self.ptt_trigger = ptt_trigger
-        self.ptt_release = ptt_release
-        self.ptt = False
+
 
     def write_raw(self,data:bytes):
         if self.device.sample_rate != self.sample_rate:

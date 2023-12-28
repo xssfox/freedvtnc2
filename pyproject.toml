@@ -1,9 +1,13 @@
 [tool.poetry]
 name = "freedvtnc2"
-version = "0.1.0"
+version = "0.0.1"
 description = ""
 authors = ["xssfox <xss@sprocketfox.io>"]
 readme = "README.md"
+
+[tool.poetry.build]
+script = "build_lib.py"
+generate-setup-file = true
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -14,8 +18,15 @@ tabulate = "^0.9.0"
 pydub = "^0.25.1"
 kissfix = "^7.0.11"
 prompt-toolkit = "^3.0.43"
+setuptools = "^69.0.3"
 
+
+[tool.poetry.group.dev.dependencies]
+setuptools = "^69.0.3"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core","setuptools","cffi"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+freedvtnc2 = 'freedvtnc2:__main__.main'
