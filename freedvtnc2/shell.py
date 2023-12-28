@@ -204,6 +204,10 @@ class FreeDVShellCommands():
             "on": None,
             "off": None
         }        
+    
+    def do_exception(self, arg):
+        "Raises and exemption to test the shell"
+        raise NotImplementedError("woof\nwoof\n")
 
     def do_save_config(self, arg):
         "Save a config file to ~/.freedvtnc2.conf. Warning this will override your current config"
@@ -244,6 +248,7 @@ class FreeDVShell():
             ("log.critical.module", 'bold #ff0000'),
             ("log.critical.msg", 'bold #ff0000'),
             ("chat.callsign", 'bold #00ff00'),
+            ("commandoutput.error", 'bold #ff0000'),
         ]
     )
     def __init__(self, modem_rx: FreeDVRX, modem_tx: FreeDVTX, output_device: audio.OutputDevice, input_device: audio.InputDevice, parser:  configargparse.ArgParser, options: argparse.Namespace, logs:str):
@@ -283,12 +288,14 @@ class FreeDVShell():
         
         def accept(buff):
             try:
-                self.add_text(HTML("<userinput>&gt; {}</userinput>\n").format(input_field.text).value)
+                input_text = input_field.text.replace("\n","")
+                self.add_text(HTML("<userinput>&gt; {}</userinput>\n").format(input_text).value)
 
-                command, arg = input_field.text.split(" ", 1)
+                command, arg = input_text.split(" ", 1)
             except ValueError:
-                command = input_field.text
+                command = input_text
                 arg = ""
+            additional_class="info"
             try:
                 command = getattr(self.shell_commands, "do_" + command)
                 try:
@@ -302,12 +309,14 @@ class FreeDVShell():
                 except KeyboardInterrupt:
                     raise KeyboardInterrupt
                 except:
+                    additional_class = "error"
                     output = traceback.format_exc() + "\n"
             except Exception:
                 output = "Invalid command. Valid commands: " + ", ".join(self.shell_commands.commands) + "\n"
-            for line in output.split("\n"):
-                self.add_text(HTML("<commandoutput>{}</commandoutput>\n").format(line).value)
-        
+            if output:
+                for line in output.split("\n"):
+                    self.add_text(HTML(f"<commandoutput.{additional_class}>{{}}</commandoutput.{additional_class}>\n").format(line).value)
+            
         input_field = TextArea(
             height=3,
             prompt="(freedvtnc2) ",
@@ -348,6 +357,8 @@ class FreeDVShell():
                 ("class:status", f"TX Queue: { len(self.output_device.send_queue) :3.0f} | "),
                 ("class:status", f"Channel: "),
                 (f"class:status.{'red' if self.output_device.inhibit else 'green'}", f"{'busy' if self.output_device.inhibit else 'clear'}"),
+                ("class:status", f" | TX Mode: "),
+                (f"class:status", f"{self.modem_tx.modem.modem_name}"),
                 ("class:status", " |\n"),
                 ]
 

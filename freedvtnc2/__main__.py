@@ -52,12 +52,13 @@ if __name__ == '__main__':
             super().__init__()
             self.log_buffer = ""
         def emit(self, record):
-            if record.name == "root" and record.module == "__main__":
-                msg = HTML(f"<log.{record.levelname.lower()}.msg>{{}}</log.{record.levelname.lower()}.msg>\n").format(record.msg).value
-            else:
-                msg = HTML(f"<log.{record.levelname.lower()}.name>{{}}</log.{record.levelname.lower()}.name>").format(record.name).value
-                msg += HTML(f":<log.{record.levelname.lower()}.module>{{}}</log.{record.levelname.lower()}.module>").format(record.module).value
-                msg += HTML(f": <log.{record.levelname.lower()}.msg>{{}}</log.{record.levelname.lower()}.msg>\n").format(record.msg,).value
+            for message in record.msg.split("\n"):
+                if record.name == "root" and record.module == "__main__":
+                    msg = HTML(f"<log.{record.levelname.lower()}.msg>{{}}</log.{record.levelname.lower()}.msg>\n").format(message).value
+                else:
+                    msg = HTML(f"<log.{record.levelname.lower()}.name>{{}}</log.{record.levelname.lower()}.name>").format(record.name).value
+                    msg += HTML(f":<log.{record.levelname.lower()}.module>{{}}</log.{record.levelname.lower()}.module>").format(record.module).value
+                    msg += HTML(f": <log.{record.levelname.lower()}.msg>{{}}</log.{record.levelname.lower()}.msg>\n").format(message).value
 
             if options.no_cli:
                 print(self.format(record))
