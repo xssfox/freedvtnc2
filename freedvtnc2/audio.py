@@ -28,7 +28,7 @@ class AudioDevices:
                 input_channels = device_info['maxInputChannels'],
                 output_channels = device_info['maxOutputChannels'],
                 sample_rate = int(device_info['defaultSampleRate']),
-                name = device_info['name'],
+                name = device_info['name'].strip(),
                 id = x
             ))
     def __str__(self):
@@ -78,6 +78,9 @@ class InputDevice():
         self.sample_rate = sample_rate
         self.callback = callback
         self.bit_depth = pyaudio.get_sample_size(FORMAT)
+
+        if type(name_or_id) == str:
+            name_or_id = name_or_id.strip()
 
         if  name_or_id != None:
             try:
@@ -186,6 +189,9 @@ class OutputDevice():
         self.db = db
         self.send_queue = []
         self.modem = modem
+
+        if type(name_or_id) == str:
+            name_or_id = name_or_id.strip()
 
         if name_or_id != None:
             try:
