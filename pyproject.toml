@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "freedvtnc2"
-version = "0.0.1"
+version = "0.0.2"
 description = ""
 authors = ["xssfox <xss@sprocketfox.io>"]
 readme = "README.md"

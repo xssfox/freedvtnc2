@@ -98,7 +98,8 @@ class InputDevice():
         logging.debug(f"Opening {self.device.name} for input")
 
         if self.device.input_channels >= 2:
-            logging.warning("Stereo (or more) input detected - Only the first/left channel will be used")
+            self.device.input_channels = 2
+            logging.warning("Stereo (or more) input detected - Only the first/left channel will be used. Will open only 2 channels")
 
         if self.device.sample_rate < sample_rate:
             logging.critical(f"Input audio device sample rate {self.device.sample_rate} is less than modems sample rate {sample_rate} - this will cause problems")
