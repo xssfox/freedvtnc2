@@ -2,7 +2,7 @@
 
 ## Determine Audio Device
 
-* first determine the audio devices for input and output; bash `freedvtnc2 --list-audio-devices' in an sBitx terminal
+* first determine the audio devices for input and output; bash `freedvtnc2 --list-audio-devices` in an sBitx terminal
 
 - Should print something like this at the end
 ```
