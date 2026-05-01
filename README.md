@@ -6,6 +6,7 @@ A KISS TNC using the freedv data modems.
  - KISS interface (virtual serial, or TCP)
  - Chat
  - DATAC1, DATAC3 and DATAC4 modes
+ - Integrates with sBitx radio (see sBitx Setup)
 
 ## Unsupported
  - Windows
